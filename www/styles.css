@@ -360,3 +360,38 @@ textarea.memo { width: 100%; min-height: 160px; background: #0a0f2e; border: 1px
 .alert.new .t::after { content: ' NEW'; font-size: 10px; color: var(--bad); font-weight: 800; }
 .menu .row { cursor: pointer; }
 .menu .mi { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; background: #ffffff0d; font-size: 18px; flex: none; }
+.guide { margin-top: 4px; background: #0a0f2e; border: 1px solid var(--line2); border-radius: 16px; padding: 12px 14px; }
+.guide summary { font-weight: 800; cursor: pointer; list-style: none; }
+.guide summary::-webkit-details-marker { display: none; }
+.guide summary::after { content: ' ▾'; color: var(--sub); }
+.guide[open] summary::after { content: ' ▴'; }
+.guide-url { margin-top: 10px; background: #060920; border: 1px dashed var(--line2); border-radius: 12px; padding: 8px 12px; user-select: text; }
+.guide-url span { display: block; font-size: 11.5px; color: var(--sub); }
+.guide-url b { font-size: 14px; color: var(--acc2); word-break: break-all; }
+.guide .steps b { color: var(--txt); }
+.keyres { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.keyres > div { display: flex; justify-content: space-between; gap: 8px; background: #0a0f2e; border-radius: 10px; padding: 8px 10px; }
+.keyres code { color: var(--sub); }
+details.strat > summary, details.guide-box > summary { list-style: none; cursor: pointer; }
+details.strat > summary::-webkit-details-marker, details.guide-box > summary::-webkit-details-marker { display: none; }
+details.strat > summary h4::after { content: '펼치기 ▾'; margin-left: auto; font-size: 11.5px; color: var(--sub); font-weight: 600; flex: none; padding-top: 3px; }
+details.strat[open] > summary h4::after { content: '접기 ▴'; }
+details.guide-box > summary h3::after { content: '▾'; margin-left: auto; color: var(--sub); }
+details.guide-box[open] > summary h3::after { content: '▴'; }
+.strat .meta { margin-bottom: 2px; }
+.strat[open] .meta { margin-bottom: 10px; }
+.qa { margin: 10px 0 4px; }
+.qa b { font-size: 14px; }
+.qa p { margin: 4px 0 0; font-size: 14px; line-height: 1.65; color: #d4d9f0; }
+.mini-kv { margin: 10px 0 4px; }
+.mini-kv div { padding: 8px 10px; }
+.mini-kv b { font-size: 13.5px; }
+ul.need { margin: 6px 0 0; padding-left: 20px; font-size: 14px; color: #d4d9f0; }
+ul.need li { margin: 3px 0; }
+.example { margin-top: 10px; padding: 10px 12px; border-radius: 11px; background: #38d6e812; border: 1px solid #38d6e833; font-size: 13.5px; line-height: 1.6; }
+.example b { color: var(--acc2); margin-right: 4px; }
+.basics { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.basics > div { display: flex; gap: 10px; }
+.basics .bi { font-size: 22px; flex: none; }
+.basics b { font-size: 14.5px; }
+.basics p { margin: 2px 0 0; font-size: 13.5px; color: var(--sub); line-height: 1.6; }

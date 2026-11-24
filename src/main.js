@@ -1,7 +1,8 @@
 import * as store from './store.js';
 import { searchCoins, cgTrending } from './api/sources.js';
-import { analyzeProject, reapplyAi, STEPS } from './engine/analyze.js';
+import { analyzeProject, reapplyAi, localize, STEPS } from './engine/analyze.js';
 import { PROJECT_TYPES, EARN_METHODS } from './engine/taxonomy.js';
+import { GEMINI_MODELS, parseKeys, testKeys } from './api/ai.js';
 import { esc, usd, krw, num, pct, cls, ago, sparkline, areaSpark, arc, icon } from './util.js';
 import { typeTag, stageTag, stars, tabEarn, tabInvest, tabOnchain, tabExchange, tabRisk, tabTimeline, tabMemo, viewCompare } from './ui/tabs.js';
 
@@ -102,7 +103,7 @@ const gradeBadge = (p) => {
 function tagline(p) {
   if (p.ai?.summary) return p.ai.summary.split(/[.。]\s/)[0].slice(0, 40);
   const T = PROJECT_TYPES[p.classification?.primary];
-  const cat = (p.overview?.categories || []).find((c) => !/ecosystem|portfolio|token|chain/i.test(c));
+  const cat = (p.overview?.categories || []).find((c) => !/ecosystem|portfolio|token|chain|cryptocurrency|생태계|포트폴리오|토큰|체인|암호화폐|가상화폐/i.test(c));
   return [T?.label, cat].filter(Boolean).join(' · ');
 }
 function unseenAlerts() {
@@ -311,7 +312,7 @@ function viewAlerts() {
 function viewMore() {
   const item = (act, ic, t, s) => `<div class="row" data-act="${act}"><div class="mi">${ic}</div><div class="grow"><div class="t">${t}</div><div class="s">${s}</div></div><span class="chev">${icon.chev}</span></div>`;
   return `<div class="screen with-nav">
-  <div class="topbar"><img class="app-logo" src="img/logo.png" alt=""><h1>더보기<small>코인 검증기 v1.0.0</small></h1></div>
+  <div class="topbar"><img class="app-logo" src="img/logo.png" alt=""><h1>더보기<small>코인 검증기 v1.1.0</small></h1></div>
   <div class="sec menu"><h3>도구</h3>
     ${item('select', '⚖️', '프로젝트 비교', '2~3개를 골라 점수·투자·상장 나란히 비교')}
     ${item('calcPage', '🧮', '수익 계산기', '토큰 수익률 · 노드 회수기간 · 에어드랍 기대값')}
@@ -322,7 +323,7 @@ function viewMore() {
     ${item('guide', '🚨', '코인 사기 예방 가이드', '다단계·러그풀·피싱 구별법')}
   </div>
   <div class="sec menu"><h3>설정</h3>
-    ${item('settings', '⚙️', '설정', 'AI 웹 조사 키 · 데이터 소스 · 백업/복원')}
+    ${item('settings', '⚙️', '설정', 'Gemini API 키 · 데이터 소스 · 백업/복원')}
   </div>
   <div class="disclaimer">본 앱의 분석은 투자 권유가 아닙니다. 투자 판단과 책임은 본인에게 있습니다.</div>
 </div>`;
@@ -374,7 +375,10 @@ async function runAnalysis({ query, pick, isUpdate = false, forceAi = false }) {
       if (top() === frame) render();
     });
     const prev = store.getProject(r.id);
-    if (prev?.ai) reapplyAi(r, prev.ai);
+    if (prev?.ai) {
+      reapplyAi(r, prev.ai);
+      await localize(r);
+    }
     const saved = store.upsertProject(r);
     state.stack.pop();
     if (isUpdate) {
@@ -444,7 +448,7 @@ function viewReport(t) {
   ${{ summary: tabSummary, earn: tabEarn, invest: tabInvest, onchain: tabOnchain, exchange: tabExchange, risk: tabRisk, timeline: tabTimeline, memo: tabMemo }[tab](p)}
   <div class="disclaimer">본 분석은 공개 데이터와 자동 규칙으로 생성된 참고 정보이며 투자 권유가 아닙니다.</div>
   <div class="actionbar">
-    ${p.ai ? `<button class="btn" data-act="update">${icon.refresh} 최신 데이터로 업데이트</button>` : `<button class="btn" data-act="${s.claudeKey ? 'aiRun' : 'aiNeedKey'}">${icon.search} 이 프로젝트 더 분석하기 (AI)</button>`}
+    ${p.ai ? `<button class="btn" data-act="update">${icon.refresh} 최신 데이터로 업데이트</button>` : `<button class="btn" data-act="${parseKeys(s.geminiKeys).length ? 'aiRun' : 'aiNeedKey'}">${icon.search} 이 프로젝트 더 분석하기 (AI)</button>`}
   </div>
 </div>`;
 }
@@ -552,16 +556,18 @@ function viewSettings() {
   return `<div class="screen">
   <div class="topbar"><button class="ibtn" data-act="back" aria-label="뒤로">${icon.back}</button><h1>설정</h1></div>
   <form data-form="settings">
-  <div class="sec"><h3>${icon.sparkle} AI 웹 심층 조사</h3>
-    <p class="muted" style="font-size:13.5px">Claude API 키를 등록하면 웹 검색으로 최신 뉴스·토크노믹스·언락·에어드랍 조건·상장 루머까지 조사합니다. 키는 이 기기에만 저장됩니다.</p>
-    <div class="field"><label for="claudeKey">Claude API 키</label><input id="claudeKey" name="claudeKey" type="password" value="${esc(s.claudeKey)}" placeholder="sk-ant-..." autocomplete="off"><div class="hint">console.anthropic.com 에서 발급 · 사용량만큼 과금</div></div>
-    <div class="field"><label for="claudeModel">모델</label><select id="claudeModel" name="claudeModel">
-      ${[['claude-opus-5-5', 'Claude Opus 5.5 (권장·정확)'], ['claude-sonnet-5-5', 'Claude Sonnet 5.5 (빠름·저렴)'], ['claude-haiku-5-5', 'Claude Haiku 5.5 (가장 저렴)']].map(([v, l]) => `<option value="${v}" ${s.claudeModel === v ? 'selected' : ''}>${l}</option>`).join('')}
+  <div class="sec"><h3>${icon.sparkle} AI 웹 심층 조사 (Gemini)</h3>
+    <p class="muted" style="font-size:13.5px">무료 Gemini API 키를 등록하면 Google 검색으로 최신 뉴스·토크노믹스·언락·에어드랍 조건·상장 루머까지 조사해 한국어 리포트로 보강합니다. 키는 이 기기에만 저장됩니다.</p>
+    <div class="field"><label for="geminiKeys">Gemini API 키 <span class="muted" style="font-weight:500">· 여러 개는 쉼표(,)로 구분</span></label><textarea id="geminiKeys" name="geminiKeys" class="memo" style="min-height:84px;font-family:monospace;font-size:13px" placeholder="AIzaSy...키1, AIzaSy...키2" autocomplete="off" spellcheck="false">${esc(s.geminiKeys)}</textarea>
+      <div class="hint">현재 ${parseKeys(s.geminiKeys).length}개 등록 · 한 키가 무료 한도를 넘거나 오류가 나면 다음 키로 자동 전환됩니다.</div>
+      <div style="display:flex;gap:8px;margin-top:10px"><button type="button" class="btn sm ghost" style="flex:1" data-act="keyTest">🔑 키 테스트</button><button type="button" class="btn sm ghost" style="flex:1" data-act="keyGuide">📘 발급 방법</button></div>
+      <div id="keyTestOut"></div></div>
+    ${keyGuideHtml(!parseKeys(s.geminiKeys).length)}
+    <div class="field"><label for="geminiModel">기본 모델</label><select id="geminiModel" name="geminiModel">
+      ${GEMINI_MODELS.map((m) => `<option value="${m}" ${s.geminiModel === m ? 'selected' : ''}>${m}</option>`).join('')}
     </select></div>
-    <div class="field"><label for="aiEffort">조사 깊이</label><select id="aiEffort" name="aiEffort">
-      ${[['low', '빠르게'], ['medium', '보통 (권장)'], ['high', '깊게']].map(([v, l]) => `<option value="${v}" ${s.aiEffort === v ? 'selected' : ''}>${l}</option>`).join('')}
-    </select></div>
-    <div class="switch"><div><b>분석 시 AI 조사 자동 실행</b><div class="muted" style="font-size:12.5px">끄면 리포트 하단 버튼으로 수동 실행</div></div><button type="button" class="toggle ${s.aiAuto ? 'on' : ''}" data-act="toggleAi" aria-label="AI 자동 실행"></button></div>
+    <div class="switch"><div><b>모델 오류 시 다른 모델로 자동 전환</b><div class="muted" style="font-size:12.5px">기본 모델 실패 → 목록의 다음 모델 순서로 재시도</div></div><button type="button" class="toggle ${s.geminiFallback !== false ? 'on' : ''}" data-act="toggleAi" data-k="fb" aria-label="모델 자동 전환"></button></div>
+    <div class="switch"><div><b>분석 시 AI 조사 자동 실행</b><div class="muted" style="font-size:12.5px">끄면 리포트 하단 버튼으로 수동 실행</div></div><button type="button" class="toggle ${s.aiAuto ? 'on' : ''}" data-act="toggleAi" data-k="auto" aria-label="AI 자동 실행"></button></div>
   </div>
   <div class="sec"><h3>데이터 소스</h3>
     <div class="field"><label for="coingeckoKey">CoinGecko Demo API 키 (선택)</label><input id="coingeckoKey" name="coingeckoKey" value="${esc(s.coingeckoKey)}" placeholder="CG-..." autocomplete="off"><div class="hint">무료 키를 넣으면 요청 한도 초과(429) 오류가 줄어듭니다.</div></div>
@@ -575,6 +581,26 @@ function viewSettings() {
     <input type="file" id="importFile" accept="application/json" hidden>
   </div>
 </div>`;
+}
+
+const KEY_URL = 'https://aistudio.google.com/app/apikey';
+function keyGuideHtml(open) {
+  return `<details id="keyGuide" class="guide" ${open ? 'open' : ''}><summary>📘 Gemini API 키 무료 발급 방법</summary>
+    <div class="guide-url"><span>발급 주소</span><b>${KEY_URL}</b></div>
+    <div style="display:flex;gap:8px;margin:8px 0 4px"><a class="btn sm" style="flex:1" href="${KEY_URL}" target="_blank" rel="noopener">발급 페이지 열기</a><button type="button" class="btn sm ghost" style="flex:1" data-act="copy" data-v="${KEY_URL}">주소 복사</button></div>
+    <ol class="steps">
+      <li>위 주소(Google AI Studio)에 접속해 <b>구글 계정으로 로그인</b>합니다. 처음이면 이용약관에 동의합니다.</li>
+      <li>화면의 <b>「API 키 만들기 (Create API key)」</b> 버튼을 누릅니다.</li>
+      <li>프로젝트를 고르라고 하면 기존 프로젝트를 선택하거나 <b>새 프로젝트</b>를 만들면 됩니다.</li>
+      <li><b>AIza…</b> 로 시작하는 키가 만들어지면 <b>복사</b> 버튼을 누릅니다.</li>
+      <li>이 화면의 키 입력칸에 붙여넣고 <b>[키 테스트]</b> → <b>[저장]</b>을 누릅니다.</li>
+    </ol>
+    <div class="caution" style="color:var(--sub);background:#ffffff08">
+      💡 <b style="color:var(--txt)">여러 키 등록</b>: 다른 구글 계정이나 다른 프로젝트에서 키를 더 만들어 <b style="color:var(--txt)">쉼표(,)</b>로 이어 넣으면, 한 키의 무료 한도가 차도 다음 키로 자동 전환됩니다.<br>
+      💳 결제 정보 등록 없이 무료 등급으로 사용할 수 있으며, 분당·일일 요청 한도가 있습니다.<br>
+      🔒 무료 등급에서는 입력 내용이 구글 서비스 개선에 쓰일 수 있으니 개인정보를 넣지 마세요. 키는 다른 사람과 공유하지 마세요.
+    </div>
+  </details>`;
 }
 
 // ───────── 오버레이 ─────────
@@ -660,7 +686,7 @@ const actions = {
   prio: (el) => { store.patchProject(top().id, { priority: +el.dataset.v }); render(); },
   update: () => { const p = store.getProject(top().id); runAnalysis({ query: p.query, pick: p.pick, isUpdate: true }); },
   aiRun: () => { const p = store.getProject(top().id); runAnalysis({ query: p.query, pick: p.pick, isUpdate: true, forceAi: true }); },
-  aiNeedKey: () => openOverlay({ type: 'confirm', title: 'AI 웹 심층 조사', msg: '웹 검색으로 최신 뉴스·토크노믹스·에어드랍 조건까지 조사하려면 Claude API 키가 필요합니다. 설정으로 이동할까요?', ok: '설정으로', onOk: () => push('settings') }),
+  aiNeedKey: () => openOverlay({ type: 'confirm', title: 'AI 웹 심층 조사', msg: '웹 검색으로 최신 뉴스·토크노믹스·에어드랍 조건까지 조사하려면 무료 Gemini API 키가 필요합니다. Google AI Studio(aistudio.google.com)에서 1분이면 발급됩니다. 설정에서 발급 방법을 안내해 드릴까요?', ok: '발급 안내 보기', onOk: () => { push('settings'); setTimeout(actions.keyGuide, 200); } }),
   step: (el) => { const p = store.getProject(top().id); const prog = { ...(p.progress || {}) }; prog[el.dataset.k] = !prog[el.dataset.k]; store.patchProject(p.id, { progress: prog }); render(); },
   copy: async (el) => { try { await navigator.clipboard.writeText(el.dataset.v); toast('주소를 복사했습니다'); } catch { toast(el.dataset.v); } },
   share: async () => {
@@ -688,6 +714,17 @@ const actions = {
     if (state.overlay?.type === 'trending') { state.overlay = { type: 'trending', results }; renderOverlay(); }
   },
   toggleAi: (el) => el.classList.toggle('on'),
+  keyGuide: () => { const d = document.getElementById('keyGuide'); if (d) { d.open = true; d.scrollIntoView({ behavior: 'smooth', block: 'start' }); } },
+  keyTest: async (el) => {
+    const raw = document.getElementById('geminiKeys').value;
+    const out = document.getElementById('keyTestOut');
+    if (!parseKeys(raw).length) { out.innerHTML = '<div class="caution">키를 먼저 입력하세요. 아래 [발급 방법]을 참고하세요.</div>'; return actions.keyGuide(); }
+    el.disabled = true;
+    out.innerHTML = '<div class="muted" style="font-size:13px;margin-top:8px">키를 확인하는 중…</div>';
+    const res = await testKeys(raw, document.getElementById('geminiModel').value);
+    el.disabled = false;
+    out.innerHTML = `<div class="keyres">${res.map((r) => `<div><span>${r.ok ? '✅' : '❌'} 키 ${r.i} <code>${esc(r.masked)}</code></span><b class="${r.ok ? 'up' : 'down'}">${esc(r.text)}</b></div>`).join('')}</div>`;
+  },
   refreshAll: () => openOverlay({ type: 'confirm', title: '전체 업데이트', msg: `저장된 ${store.listProjects().length}개 프로젝트를 모두 최신 데이터로 업데이트할까요? (AI 조사는 제외, 1~2분 소요)`, ok: '업데이트', onOk: refreshAll }),
   export: () => {
     const blob = new Blob([JSON.stringify({ app: 'coin-verifier', v: 1, at: Date.now(), projects: store.listProjects() }, null, 1)], { type: 'application/json' });
@@ -722,7 +759,10 @@ async function refreshAll() {
     toast(`업데이트 중 ${++n}/${list.length} · ${p.name}`);
     try {
       const r = await analyzeProject({ query: p.query, pick: p.pick, skipAi: true });
-      reapplyAi(r, p.ai);
+      if (p.ai) {
+        reapplyAi(r, p.ai); // 기존 AI 조사 유지
+        await localize(r);
+      }
       store.upsertProject(r);
     } catch (e) {
       console.warn(e);
@@ -764,7 +804,7 @@ document.addEventListener('submit', (e) => {
     form.querySelector('input')?.blur();
     doSearch(fd.q);
   } else if (form.dataset.form === 'settings') {
-    store.saveSettings({ ...fd, claudeKey: fd.claudeKey.trim(), coingeckoKey: fd.coingeckoKey.trim(), aiAuto: document.querySelector('[data-act=toggleAi]').classList.contains('on') });
+    store.saveSettings({ ...fd, geminiKeys: parseKeys(fd.geminiKeys).join(', '), coingeckoKey: fd.coingeckoKey.trim(), aiAuto: document.querySelector('[data-act=toggleAi][data-k=auto]').classList.contains('on'), geminiFallback: document.querySelector('[data-act=toggleAi][data-k=fb]').classList.contains('on') });
     toast('저장했습니다');
     pop();
   }

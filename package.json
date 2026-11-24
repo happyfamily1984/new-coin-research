@@ -17,7 +17,6 @@
   },
   "homepage": "https://github.com/happyfamily1984/new-coin-research#readme",
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.13.0",
     "@capacitor/android": "^8.6.2",
     "@capacitor/app": "^8.1.2",
     "@capacitor/cli": "^8.6.2",

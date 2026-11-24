@@ -3,9 +3,10 @@ const KEY_PROJECTS = 'ncr.projects.v1';
 const KEY_SETTINGS = 'ncr.settings.v1';
 
 const DEFAULT_SETTINGS = {
-  claudeKey: '',
-  claudeModel: 'claude-opus-5-5',
-  aiEffort: 'medium',
+  geminiKeys: '', // 쉼표로 여러 개
+  geminiModel: 'gemini-3.6-flash',
+  geminiFallback: true, // 실패 시 다른 모델로 자동 전환
+  geminiKeyCursor: 0,
   aiAuto: true, // 키가 있으면 분석 시 AI 심층 분석 자동 실행
   coingeckoKey: '',
   sortMode: 'manual', // manual | priority | trust | potential | updated

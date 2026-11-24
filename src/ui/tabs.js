@@ -10,29 +10,48 @@ export const typeTag = (k) => {
 export const stageTag = (s) => ({ 'pre-tge': '<span class="tag stage-pre-tge">TGE 전</span>', new: '<span class="tag stage-new">신규 상장</span>', listed: '<span class="tag">상장</span>' })[s] || '';
 export const stars = (n) => '★'.repeat(n || 0) + '☆'.repeat(5 - (n || 0));
 
+const BASICS = [
+  ['🏦', '거래소 계정', '업비트·빗썸 같은 국내 거래소 앱을 설치하고 본인 인증 + 은행 계좌를 연결해요. 코인을 사고파는 기본 창구예요.'],
+  ['👛', '개인 지갑', '에어드랍·NFT·디파이에는 메타마스크(이더리움 계열)나 팬텀(솔라나) 같은 지갑 앱이 필요해요. 만들 때 나오는 복구 문구 12단어는 종이에 적어 안전한 곳에 보관하고, 누구에게도 알려 주지 마세요.'],
+  ['💸', '여윳돈만', '코인은 하루에도 30% 넘게 오르내려요. 잃어도 생활에 문제없는 돈으로만 하세요.'],
+  ['🧺', '나눠서', '한 코인에 몰빵하지 말고, 한 번에 다 사지도 마세요. 나눠 사고 나눠 파는 게 기본이에요.'],
+  ['🔗', '공식 링크만', '사이트 주소는 공식 X(트위터)나 이 앱의 링크로만 들어가세요. 검색 광고·DM 링크는 가짜가 많아요.'],
+];
+
 export function tabEarn(p) {
   const prog = p.progress || {};
   const strats = p.strategies || [];
+  const fitLbl = { high: '추천', mid: '가능', low: '제한적' };
   return `
-  <div class="sec"><h3>💡 일반인 참여 수익 방식</h3>
-    <div class="chips" style="padding:0;flex-wrap:wrap">${(p.earnMethods || []).map((m) => `<span class="chip on">${EARN_METHODS[m.key].icon} ${esc(m.label)} · ${{ high: '추천', mid: '가능', low: '제한적' }[m.fit]}</span>`).join('')}</div>
-    <p class="muted" style="font-size:13px;margin-top:10px">단계를 눌러 내 진행 상황을 체크할 수 있어요. 체크는 저장됩니다.</p>
+  <div class="sec"><h3>💡 이 프로젝트로 돈을 버는 방법</h3>
+    <p class="muted" style="font-size:13.5px;margin-bottom:10px">아래 방법 중 내 상황(돈·시간·경험)에 맞는 것을 골라 보세요. 위에 있을수록 이 프로젝트에 잘 맞는 방법이에요.</p>
+    <div class="typegrid">${(p.earnMethods || []).map((m) => `<div class="typeitem" style="--c:var(--acc)"><span class="ic">${EARN_METHODS[m.key].icon}</span><div class="grow"><b>${esc(m.label)}</b><div class="s">${esc(EARN_METHODS[m.key].desc)}</div></div><span class="fit ${m.fit}">${fitLbl[m.fit]}</span></div>`).join('')}</div>
   </div>
-  <div class="sec"><h3>참여 전략 <span class="muted">${strats.length}개</span></h3>
+  <details class="sec guide-box"><summary><h3 style="margin:0">🔰 코인이 처음이라면 먼저 읽어 주세요</h3></summary>
+    <div class="basics">${BASICS.map(([ic, t, d]) => `<div><span class="bi">${ic}</span><div><b>${t}</b><p>${d}</p></div></div>`).join('')}</div>
+  </details>
+  <div class="sec"><h3>📋 따라 하는 참여 전략 <span class="muted">${strats.length}개</span></h3>
+    <p class="muted" style="font-size:13px;margin:-4px 0 10px">단계를 누르면 ✓ 체크되어 내 진행 상황이 저장돼요.</p>
   ${strats.map((s, si) => {
-    const done = (s.steps || []).filter((_, i) => prog[`${s.method}-${i}`]).length;
-    return `<div class="strat">
-      <h4>${EARN_METHODS[s.method]?.icon || '🧩'} ${esc(s.title)} ${s.fromAi ? '<span class="pill-ai">AI</span>' : ''}</h4>
-      <div class="meta"><span class="tag">${esc(s.methodLabel)}</span><span class="tag">난이도 ${esc(s.difficulty || '-')}</span><span class="tag">자본 ${esc(s.capital || '-')}</span><span class="tag">기간 ${esc(s.period || '-')}</span><span class="tag ${/높음/.test(s.risk) ? 'bad' : /중간/.test(s.risk) ? 'warn' : 'good'}">위험 ${esc(s.risk || '-')}</span></div>
-      ${s.why ? `<div class="muted" style="font-size:13px;margin-bottom:6px">근거: ${esc(s.why)}</div>` : ''}
-      ${s.expected ? `<div style="font-size:13.5px;margin-bottom:6px">🎯 ${esc(s.expected)}</div>` : ''}
-      <ol class="steps">${(s.steps || []).map((st, i) => `<li class="${prog[`${s.method}-${i}`] ? 'done' : ''}" data-act="step" data-k="${esc(s.method)}-${i}">${esc(st)}</li>`).join('')}</ol>
-      ${s.steps?.length ? `<div class="muted" style="font-size:12px;margin-top:4px">진행 ${done}/${s.steps.length}</div>` : ''}
-      ${(s.cautions || []).length ? `<div class="caution">⚠ ${s.cautions.map(esc).join('<br>⚠ ')}</div>` : ''}
-    </div>`;
+    const key = (i) => `${s.fromAi ? 'ai' + si + '-' : ''}${s.method}-${i}`;
+    const done = (s.steps || []).filter((_, i) => prog[key(i)]).length;
+    const need = (s.need || []).filter((x) => x && x !== '-');
+    return `<details class="strat" ${si === 0 ? 'open' : ''}>
+      <summary><h4>${EARN_METHODS[s.method]?.icon || '🧩'} ${esc(s.title)} ${s.fromAi ? '<span class="pill-ai">AI</span>' : ''}</h4>
+      <div class="meta"><span class="tag">${esc(s.methodLabel)}</span><span class="tag">난이도 ${esc(s.difficulty || '-')}</span><span class="tag ${/높음/.test(s.risk) ? 'bad' : /중간/.test(s.risk) ? 'warn' : 'good'}">위험 ${esc(s.risk || '-')}</span>${s.steps?.length ? `<span class="tag">${done}/${s.steps.length} 완료</span>` : ''}</div></summary>
+      ${s.summary ? `<div class="qa"><b>🤔 이게 뭔가요?</b><p>${esc(s.summary)}</p></div>` : ''}
+      ${s.howEarn ? `<div class="qa"><b>💰 어떻게 돈을 버나요?</b><p>${esc(s.howEarn)}</p></div>` : ''}
+      <div class="kv mini-kv"><div><span>필요한 돈</span><b>${esc(s.capital || '-')}</b></div><div><span>걸리는 기간</span><b>${esc(s.period || '-')}</b></div></div>
+      ${need.length ? `<div class="qa"><b>🎒 준비물</b><ul class="need">${need.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+      ${s.why ? `<div class="muted" style="font-size:12.5px;margin:6px 0">이 프로젝트에 맞는 이유: ${esc(s.why)}</div>` : ''}
+      <div class="qa"><b>👣 이렇게 따라 하세요</b></div>
+      <ol class="steps">${(s.steps || []).map((st, i) => `<li class="${prog[key(i)] ? 'done' : ''}" data-act="step" data-k="${esc(key(i))}">${esc(st)}</li>`).join('')}</ol>
+      ${s.example || s.expected ? `<div class="example">📊 <b>예시</b> ${esc(s.example || s.expected)}</div>` : ''}
+      ${(s.cautions || []).length ? `<div class="caution"><b>⚠️ 꼭 주의하세요</b><br>${s.cautions.map((c) => `· ${esc(c)}`).join('<br>')}</div>` : ''}
+    </details>`;
   }).join('')}</div>
   <div class="sec"><h3>🧮 수익 계산기</h3>
-    <p class="muted" style="font-size:13.5px">노드 회수 기간, 목표가 수익, 에어드랍 기대값을 계산해 보세요.</p>
+    <p class="muted" style="font-size:13.5px">"얼마 넣으면 얼마 벌까?" 노드 회수 기간, 목표가 수익, 에어드랍 기대값을 숫자로 계산해 보세요.</p>
     <button class="btn sm block" data-act="calc">계산기 열기</button>
   </div>`;
 }

@@ -1,11 +1,12 @@
-// Claude API + 웹 검색 기반 심층 분석 (선택 기능: 설정에서 API 키 입력 시)
-import Anthropic from '@anthropic-ai/sdk';
-import { getSettings } from '../store.js';
+// Gemini API + Google 검색 그라운딩 기반 심층 분석 (설정에서 API 키 입력 시)
+// 키는 쉼표로 여러 개 입력 가능 — 한도 초과/오류 시 다음 키, 모델 오류 시 다음 모델로 자동 전환
+import { getSettings, saveSettings } from '../store.js';
 import { PROJECT_TYPES, EARN_METHODS } from '../engine/taxonomy.js';
 
 const SYSTEM = `당신은 신규 암호화폐 프로젝트를 검증하는 리서치 애널리스트입니다.
 웹 검색으로 최신 정보를 조사하고 한국어로 답합니다. 확인되지 않은 내용은 추측하지 말고 "미확인"이라고 쓰세요.
 일반 개인 투자자가 참여해 수익을 낼 수 있는 현실적인 방법을 제시하되, 위험을 숨기지 마세요.
+참여 전략은 코인을 처음 하는 사람도 따라 할 수 있게 쉬운 말과 친절한 존댓말(~해요)로, 전문 용어는 괄호로 풀어서 쓰세요.
 투자 권유가 아닌 정보 제공 목적입니다.`;
 
 function buildPrompt(query, known) {
@@ -30,7 +31,7 @@ ${JSON.stringify(known).slice(0, 6000)}
  "listings": {"current": ["거래소"], "expected": ["상장 예정/루머(출처 명시)"]},
  "airdrop": {"status": "진행중|종료|예정|없음|미확인", "detail": "조건·기간"},
  "news": [{"date": "YYYY-MM-DD", "title": "", "url": ""}],
- "strategies": [{"title": "", "method": "earnMethods key", "difficulty": "쉬움|보통|어려움", "capital": "", "period": "", "risk": "낮음|중간|높음", "expected": "기대 수익 시나리오", "steps": ["구체적 단계"], "cautions": [""]}],
+ "strategies": [{"title": "쉬운 제목", "method": "earnMethods key", "difficulty": "쉬움|보통|어려움", "capital": "예: 소액부터(1만 원~)", "period": "", "risk": "낮음|중간|높음", "summary": "이게 뭔지 초보자도 알게 1~2문장", "howEarn": "어떻게 돈을 버는지 1~2문장", "need": ["준비물"], "steps": ["초보자가 그대로 따라 할 수 있는 구체적 단계(어느 사이트·메뉴·버튼인지 포함)"], "example": "숫자로 된 쉬운 예시", "cautions": [""]}],
  "risks": [{"level": "high|mid|low", "text": ""}],
  "trust": {"adjust": -15~15 정수(공개데이터 대비 신뢰도 보정), "note": "근거"},
  "potential": {"adjust": -15~15 정수, "note": "근거"},
@@ -44,6 +45,58 @@ function extractJson(text) {
   return JSON.parse(body);
 }
 
+export const GEMINI_MODELS = [
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3.1-flash-lite',
+  'gemini-3.1-flash-lite-preview',
+  'gemini-3-flash-preview',
+  'gemini-flash-lite-latest',
+];
+
+/** 쉼표·줄바꿈·공백으로 구분된 키 목록 */
+export function parseKeys(raw = '') {
+  return [...new Set(String(raw).split(/[\s,]+/).map((k) => k.trim()).filter(Boolean))];
+}
+
+const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
+
+async function callGemini(model, key, body, timeout = 180000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeout);
+  try {
+    const res = await fetch(`${ENDPOINT}/${encodeURIComponent(model)}:generateContent`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    });
+    let data = null;
+    try {
+      data = await res.json();
+    } catch {
+      /* 본문 없음 */
+    }
+    return { status: res.status, data };
+  } catch (e) {
+    return { status: 0, data: null, error: e.name === 'AbortError' ? '시간 초과' : e.message };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** 오류 종류 → 다음 키로 넘길지(key) / 다음 모델로 넘길지(model) */
+function classify({ status, data }) {
+  const reason = JSON.stringify(data?.error || '');
+  if (status === 429 || /RESOURCE_EXHAUSTED|quota/i.test(reason)) return 'key';
+  if (/API_KEY_INVALID|API key not valid|PERMISSION_DENIED|API_KEY/i.test(reason) || status === 401 || status === 403) return 'key';
+  if (status === 404 || /not found|is not supported/i.test(reason)) return 'model';
+  if (status === 0 || status >= 500) return 'model';
+  if (status === 400) return 'model';
+  return 'model';
+}
+
 /**
  * @param {string} query
  * @param {object} known 이미 수집한 요약 데이터
@@ -51,52 +104,85 @@ function extractJson(text) {
  */
 export async function aiDeepResearch(query, known, onProgress = () => {}) {
   const s = getSettings();
-  if (!s.claudeKey) return null;
-  const client = new Anthropic({
-    apiKey: s.claudeKey,
-    dangerouslyAllowBrowser: true, // 사용자가 직접 입력한 본인 키를 기기 안에서만 사용
-    // Capacitor 네이티브 HTTP 패치는 스트리밍을 지원하지 않으므로 원본 WebView fetch 사용
-    fetch: (globalThis.CapacitorWebFetch || globalThis.fetch).bind(globalThis),
-    maxRetries: 2,
-    timeout: 10 * 60 * 1000,
-  });
+  const keys = parseKeys(s.geminiKeys);
+  if (!keys.length) return null;
+  const first = GEMINI_MODELS.includes(s.geminiModel) ? s.geminiModel : GEMINI_MODELS[0];
+  const models = s.geminiFallback === false ? [first] : [first, ...GEMINI_MODELS.filter((m) => m !== first)];
 
-  const messages = [{ role: 'user', content: buildPrompt(query, known) }];
-  let final;
-  let searches = 0;
-  for (let turn = 0; turn < 4; turn++) {
-    const stream = client.beta.messages.stream({
-      model: s.claudeModel || 'claude-opus-5-5',
-      max_tokens: 32000,
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      system: SYSTEM,
-      output_config: { effort: s.aiEffort || 'medium' },
-      tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 10 }],
-      messages,
-    });
-    stream.on('streamEvent', (ev) => {
-      if (ev.type === 'content_block_start' && ev.content_block?.type === 'server_tool_use') {
-        searches++;
-        onProgress(`웹 검색 중… (${searches}회)`);
-      } else if (ev.type === 'content_block_start' && ev.content_block?.type === 'text') {
-        onProgress('AI가 리포트를 작성하는 중…');
+  const body = {
+    systemInstruction: { parts: [{ text: SYSTEM }] },
+    contents: [{ role: 'user', parts: [{ text: buildPrompt(query, known) }] }],
+    tools: [{ google_search: {} }],
+    generationConfig: { temperature: 0.4, maxOutputTokens: 16384 },
+  };
+
+  const deadKeys = new Set(); // 이번 요청에서 무효/한도초과 판정된 키
+  const errors = [];
+  let start = (s.geminiKeyCursor || 0) % keys.length; // 키를 돌아가며 사용해 부하 분산
+  for (const model of models) {
+    for (let n = 0; n < keys.length; n++) {
+      const ki = (start + n) % keys.length;
+      if (deadKeys.has(ki)) continue;
+      onProgress(`${model} · 키 ${ki + 1}/${keys.length}로 웹 검색·분석 중…`);
+      const res = await callGemini(model, keys[ki], body);
+      const cand = res.data?.candidates?.[0];
+      const text = (cand?.content?.parts || []).map((p) => p.text || '').join('\n');
+      if (res.status === 200 && text) {
+        saveSettings({ geminiKeyCursor: (ki + 1) % keys.length });
+        const json = parseAnswer(text);
+        if (!json) {
+          errors.push(`${model}: 응답 형식 오류`);
+          break; // 같은 모델 다른 키로 반복해도 같으므로 다음 모델
+        }
+        const g = cand.groundingMetadata || {};
+        const webSources = (g.groundingChunks || []).map((c) => c.web).filter((w) => w?.uri).map((w) => ({ title: w.title || w.uri, url: w.uri }));
+        json.sources = [...(json.sources || []), ...webSources].filter((x, i, a) => x?.url && a.findIndex((y) => y.url === x.url) === i).slice(0, 20);
+        json._meta = { model, keyIndex: ki + 1, searches: (g.webSearchQueries || []).length, at: Date.now() };
+        return json;
       }
-    });
-    final = await stream.finalMessage();
-    if (final.stop_reason === 'pause_turn') {
-      messages.push({ role: 'assistant', content: final.content });
-      continue;
+      if (res.status === 200) {
+        errors.push(`${model}: 빈 응답(${cand?.finishReason || '사유 없음'})`);
+        break;
+      }
+      const kind = classify(res);
+      const msg = res.data?.error?.message || res.error || `HTTP ${res.status}`;
+      errors.push(`${model} 키${ki + 1}: ${msg.slice(0, 80)}`);
+      if (kind === 'key') {
+        deadKeys.add(ki);
+        continue;
+      }
+      break; // 모델 문제 → 다음 모델
     }
-    break;
+    if (deadKeys.size >= keys.length) break;
+    start = 0;
   }
-  if (final.stop_reason === 'refusal') throw new Error('AI가 이 요청을 처리하지 못했습니다.');
-  const text = final.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+  const allKeysDead = deadKeys.size >= keys.length;
+  throw new Error(allKeysDead ? `등록한 키 ${keys.length}개 모두 한도 초과 또는 무효입니다` : `AI 분석 실패 (${errors.slice(-2).join(' / ')})`);
+}
+
+function parseAnswer(text) {
   try {
-    const json = extractJson(text);
-    json._meta = { model: final.model, searches, at: Date.now() };
-    return json;
+    return extractJson(text);
   } catch {
-    throw new Error('AI 응답을 해석하지 못했습니다. 다시 시도해 주세요.');
+    return null;
   }
+}
+
+/** 등록한 키를 하나씩 짧게 호출해 상태 확인 */
+export async function testKeys(raw, model) {
+  const keys = parseKeys(raw);
+  const out = [];
+  for (const [i, key] of keys.entries()) {
+    const res = await callGemini(model || GEMINI_MODELS[0], key, { contents: [{ parts: [{ text: 'OK라고만 답해' }] }], generationConfig: { maxOutputTokens: 16 } }, 30000);
+    const msg = res.data?.error?.message || res.error || '';
+    let state;
+    if (res.status === 200) state = { ok: true, text: '정상' };
+    else if (res.status === 429 || /RESOURCE_EXHAUSTED|quota/i.test(msg)) state = { ok: false, text: '무료 한도 초과(잠시 후 재사용 가능)' };
+    else if (/API key not valid|API_KEY_INVALID/i.test(JSON.stringify(res.data || ''))) state = { ok: false, text: '잘못된 키' };
+    else if (res.status === 403) state = { ok: false, text: '권한 없음(API 미사용 설정 또는 지역 제한)' };
+    else if (res.status === 404) state = { ok: false, text: `모델 ${model} 사용 불가` };
+    else state = { ok: false, text: msg ? msg.slice(0, 60) : `연결 실패(${res.status})` };
+    out.push({ i: i + 1, masked: `${key.slice(0, 6)}…${key.slice(-4)}`, ...state });
+  }
+  return out;
 }

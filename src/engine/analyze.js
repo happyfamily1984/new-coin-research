@@ -1,7 +1,9 @@
 // 분석 파이프라인: 데이터 수집 → 분류 → 점수 → 전략
 import * as src from '../api/sources.js';
 import { safe } from '../api/http.js';
-import { aiDeepResearch } from '../api/ai.js';
+import { aiDeepResearch, parseKeys } from '../api/ai.js';
+import { translateKo, isKorean } from '../api/translate.js';
+import { koCategory, koRound, koKeyword, protectTerms } from './ko-terms.js';
 import { getSettings } from '../store.js';
 import { classifyProject, classifyEarnMethods, PROJECT_TYPES, EARN_METHODS } from './taxonomy.js';
 import { trustScore, potentialScore, isTier1 } from './score.js';
@@ -198,24 +200,77 @@ export async function analyzeProject(input, onStep = () => {}) {
 
   // ── 5. AI ──
   const s = getSettings();
-  if (s.claudeKey && !input.skipAi && (s.aiAuto || input.forceAi)) {
-    onStep('ai', 'run', '웹 검색 준비 중…');
+  const hasKey = parseKeys(s.geminiKeys).length > 0;
+  if (hasKey && !input.skipAi && (s.aiAuto || input.forceAi)) {
+    onStep('ai', 'run', 'Gemini 웹 검색 준비 중…');
     try {
       r.ai = await aiDeepResearch(r.name, summarizeForAi(r), (msg) => onStep('ai', 'run', msg));
       applyAi(r);
-      onStep('ai', 'done', `웹 검색 ${r.ai._meta.searches}회`);
+      onStep('ai', 'done', `${r.ai._meta.model} · 웹 검색 ${r.ai._meta.searches}회`);
     } catch (e) {
       errors.push(`AI: ${e.message}`);
       onStep('ai', 'fail', e.message);
     }
-  } else onStep('ai', 'skip', s.claudeKey ? '자동 실행 꺼짐' : 'API 키 미설정');
+  } else onStep('ai', 'skip', hasKey ? '자동 실행 꺼짐' : 'Gemini API 키 미설정');
 
-  // ── 6. 분류·점수·전략 ──
+  // ── 6. 분류·점수·전략 + 한국어 변환 ──
   onStep('score', 'run');
   finalize(r);
+  onStep('score', 'run', '영문 정보를 한국어로 변환 중…');
+  await localize(r);
   onStep('score', 'done');
   r.updatedAt = Date.now();
   if (!cg && !r.ids.paprika && !r.ai && !llama) r.thin = true; // 데이터 부족
+  return r;
+}
+
+/** 영어로 수집된 설명·카테고리·팀 역할 등을 한국어로 변환 (AI 없이 무료 번역) */
+export async function localize(r) {
+  const o = r.overview;
+  const jobs = [];
+  const add = (get, set) => {
+    const v = get();
+    if (v && typeof v === 'string' && !isKorean(v)) jobs.push({ v, set });
+  };
+  if (o.description && !isKorean(o.description)) {
+    o.descriptionEn = o.description;
+    add(() => protectTerms(o.description.slice(0, 3000)), (t) => (o.description = t));
+  }
+  // 카테고리·태그: 코인 용어 사전 우선, 없으면 기계번역
+  const listKo = (arr, setEn) => {
+    setEn([...arr]);
+    arr.forEach((c, i) => {
+      const d = koCategory(c);
+      if (d) arr[i] = d;
+      else add(() => c, (t) => (arr[i] = t));
+    });
+  };
+  if (o.categories?.length && !o.categoriesEn) listKo(o.categories, (v) => (o.categoriesEn = v));
+  if (o.tags?.length && !o.tagsEn) listKo(o.tags, (v) => (o.tagsEn = v));
+  (r.team || []).forEach((m) => add(() => m.role, (t) => (m.role = t)));
+  (r.investors?.raises || []).forEach((x) => {
+    const d = koRound(x.round);
+    if (d) x.round = d;
+    else add(() => x.round, (t) => (x.round = t));
+  });
+  (r.classification?.types || []).forEach((t) => (t.reasons || []).forEach((why, i) => {
+    const m = why.match(/^카테고리: (.+)$/);
+    if (m && !isKorean(m[1])) {
+      const d = koCategory(m[1]);
+      if (d) t.reasons[i] = `카테고리: ${d}`;
+      else add(() => m[1], (tr) => (t.reasons[i] = `카테고리: ${tr}`));
+    }
+    const k = why.match(/^설명 키워드: "(.+)"$/);
+    if (k && !isKorean(k[1])) t.reasons[i] = `설명에 '${koKeyword(k[1]) || k[1]}' 관련 내용`;
+  }));
+  if (!jobs.length) return r;
+  try {
+    const out = await translateKo(jobs.map((j) => j.v));
+    jobs.forEach((j, i) => out[i] && j.set(out[i]));
+    r.translated = true;
+  } catch (e) {
+    r.errors?.push(`번역: ${e.message}`);
+  }
   return r;
 }
 
@@ -230,12 +285,13 @@ export function reapplyAi(r, ai) {
 
 /** 분류·점수·전략 재계산 (AI 병합 후에도 호출) */
 export function finalize(r) {
-  const text = `${r.overview.description || ''} ${r.ai?.overview || ''} ${(r.ai?.airdrop?.detail || '')}`;
+  // 분류는 영문 원문 기준(키워드 규칙이 영어) — 번역 후에도 원문을 사용
+  const text = `${r.overview.descriptionEn || r.overview.description || ''} ${r.ai?.overview || ''} ${(r.ai?.airdrop?.detail || '')}`;
   const cls = classifyProject({
     name: r.name,
     description: text,
-    categories: r.overview.categories || [],
-    tags: r.overview.tags || [],
+    categories: r.overview.categoriesEn || r.overview.categories || [],
+    tags: r.overview.tagsEn || r.overview.tags || [],
     isListed: r.stage !== 'pre-tge',
     ageDays: r.market.ageDays,
     hasRaises: r.investors.raises.length > 0,
