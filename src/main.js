@@ -2,7 +2,7 @@ import * as store from './store.js';
 import { searchCoins, cgTrending } from './api/sources.js';
 import { analyzeProject, reapplyAi, localize, STEPS } from './engine/analyze.js';
 import { PROJECT_TYPES, EARN_METHODS } from './engine/taxonomy.js';
-import { GEMINI_MODELS, parseKeys, testKeys } from './api/ai.js';
+import { GEMINI_MODELS, parseKeys, testKeys, resetExhausted } from './api/ai.js';
 import { esc, usd, krw, num, pct, cls, ago, sparkline, areaSpark, arc, icon } from './util.js';
 import { typeTag, stageTag, stars, tabEarn, tabInvest, tabOnchain, tabExchange, tabRisk, tabTimeline, tabMemo, viewCompare } from './ui/tabs.js';
 
@@ -312,7 +312,7 @@ function viewAlerts() {
 function viewMore() {
   const item = (act, ic, t, s) => `<div class="row" data-act="${act}"><div class="mi">${ic}</div><div class="grow"><div class="t">${t}</div><div class="s">${s}</div></div><span class="chev">${icon.chev}</span></div>`;
   return `<div class="screen with-nav">
-  <div class="topbar"><img class="app-logo" src="img/logo.png" alt=""><h1>더보기<small>코인 검증기 v1.1.0</small></h1></div>
+  <div class="topbar"><img class="app-logo" src="img/logo.png" alt=""><h1>더보기<small>코인 검증기 v1.2.0</small></h1></div>
   <div class="sec menu"><h3>도구</h3>
     ${item('select', '⚖️', '프로젝트 비교', '2~3개를 골라 점수·투자·상장 나란히 비교')}
     ${item('calcPage', '🧮', '수익 계산기', '토큰 수익률 · 노드 회수기간 · 에어드랍 기대값')}
@@ -561,7 +561,8 @@ function viewSettings() {
     <div class="field"><label for="geminiKeys">Gemini API 키 <span class="muted" style="font-weight:500">· 여러 개는 쉼표(,)로 구분</span></label><textarea id="geminiKeys" name="geminiKeys" class="memo" style="min-height:84px;font-family:monospace;font-size:13px" placeholder="AIzaSy...키1, AIzaSy...키2" autocomplete="off" spellcheck="false">${esc(s.geminiKeys)}</textarea>
       <div class="hint">현재 ${parseKeys(s.geminiKeys).length}개 등록 · 한 키가 무료 한도를 넘거나 오류가 나면 다음 키로 자동 전환됩니다.</div>
       <div style="display:flex;gap:8px;margin-top:10px"><button type="button" class="btn sm ghost" style="flex:1" data-act="keyTest">🔑 키 테스트</button><button type="button" class="btn sm ghost" style="flex:1" data-act="keyGuide">📘 발급 방법</button></div>
-      <div id="keyTestOut"></div></div>
+      <div id="keyTestOut"></div>
+      <button type="button" class="btn sm ghost block" style="margin-top:8px" data-act="resetQuota">🔄 오늘 '한도 소진' 기록 초기화</button></div>
     ${keyGuideHtml(!parseKeys(s.geminiKeys).length)}
     <div class="field"><label for="geminiModel">기본 모델</label><select id="geminiModel" name="geminiModel">
       ${GEMINI_MODELS.map((m) => `<option value="${m}" ${s.geminiModel === m ? 'selected' : ''}>${m}</option>`).join('')}
@@ -591,12 +592,14 @@ function keyGuideHtml(open) {
     <ol class="steps">
       <li>위 주소(Google AI Studio)에 접속해 <b>구글 계정으로 로그인</b>합니다. 처음이면 이용약관에 동의합니다.</li>
       <li>화면의 <b>「API 키 만들기 (Create API key)」</b> 버튼을 누릅니다.</li>
-      <li>프로젝트를 고르라고 하면 기존 프로젝트를 선택하거나 <b>새 프로젝트</b>를 만들면 됩니다.</li>
+      <li>프로젝트를 고르는 칸에서 <b>「새 프로젝트 만들기(Create project)」</b>를 선택하세요. ⚠️ 키를 여러 개 만들 때는 <b>키마다 새 프로젝트</b>로 만들어야 해요.</li>
       <li><b>AIza…</b> 로 시작하는 키가 만들어지면 <b>복사</b> 버튼을 누릅니다.</li>
       <li>이 화면의 키 입력칸에 붙여넣고 <b>[키 테스트]</b> → <b>[저장]</b>을 누릅니다.</li>
     </ol>
     <div class="caution" style="color:var(--sub);background:#ffffff08">
-      💡 <b style="color:var(--txt)">여러 키 등록</b>: 다른 구글 계정이나 다른 프로젝트에서 키를 더 만들어 <b style="color:var(--txt)">쉼표(,)</b>로 이어 넣으면, 한 키의 무료 한도가 차도 다음 키로 자동 전환됩니다.<br>
+      💡 <b style="color:var(--txt)">여러 키 등록</b>: 키를 <b style="color:var(--txt)">쉼표(,)</b>로 이어 넣으면 한도가 찬 키는 건너뛰고 다음 키·다음 모델로 자동 전환됩니다.<br>
+      ⚠️ <b style="color:var(--txt)">중요</b>: 무료 한도는 키가 아니라 <b style="color:var(--txt)">구글 프로젝트 단위</b>로 계산돼요. 같은 프로젝트 안에서 키를 14개 만들어도 한도는 1개분이에요. 반드시 키마다 <b style="color:var(--txt)">다른 프로젝트(또는 다른 구글 계정)</b>에서 만드세요. 한 계정에서 만들 수 있는 프로젝트 수에는 제한이 있어요.<br>
+      🕓 한도는 모델마다 따로 있고, 일일 한도는 매일 <b style="color:var(--txt)">한국 시간 오후 4~5시</b>(미국 태평양 자정)에 초기화돼요.<br>
       💳 결제 정보 등록 없이 무료 등급으로 사용할 수 있으며, 분당·일일 요청 한도가 있습니다.<br>
       🔒 무료 등급에서는 입력 내용이 구글 서비스 개선에 쓰일 수 있으니 개인정보를 넣지 마세요. 키는 다른 사람과 공유하지 마세요.
     </div>
@@ -714,6 +717,7 @@ const actions = {
     if (state.overlay?.type === 'trending') { state.overlay = { type: 'trending', results }; renderOverlay(); }
   },
   toggleAi: (el) => el.classList.toggle('on'),
+  resetQuota: () => { resetExhausted(); toast('한도 소진 기록을 지웠습니다. 다음 분석에서 모든 키·모델을 다시 시도합니다'); },
   keyGuide: () => { const d = document.getElementById('keyGuide'); if (d) { d.open = true; d.scrollIntoView({ behavior: 'smooth', block: 'start' }); } },
   keyTest: async (el) => {
     const raw = document.getElementById('geminiKeys').value;
