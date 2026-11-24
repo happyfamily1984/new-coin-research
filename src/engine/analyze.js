@@ -224,6 +224,12 @@ export async function analyzeProject(input, onStep = () => {}) {
   return r;
 }
 
+/** 아직 영어가 남아 있는지 (이전 버전에서 저장된 프로젝트 포함) */
+export function needsLocalize(r) {
+  const o = r.overview || {};
+  return r.localizedV !== 2 || (o.description && !isKorean(o.description)) || (o.categories || []).some((c) => !isKorean(c)) || (r.team || []).some((m) => m.role && !isKorean(m.role));
+}
+
 /** 영어로 수집된 설명·카테고리·팀 역할 등을 한국어로 변환 (AI 없이 무료 번역) */
 export async function localize(r) {
   const o = r.overview;
@@ -236,17 +242,24 @@ export async function localize(r) {
     o.descriptionEn = o.description;
     add(() => protectTerms(o.description.slice(0, 3000)), (t) => (o.description = t));
   }
-  // 카테고리·태그: 코인 용어 사전 우선, 없으면 기계번역
-  const listKo = (arr, setEn) => {
-    setEn([...arr]);
+  // 카테고리·태그: 코인 용어 사전 우선, 없으면 기계번역 (실패했던 항목은 다음에 다시 시도)
+  const listKo = (arr, en) => {
     arr.forEach((c, i) => {
-      const d = koCategory(c);
+      if (isKorean(c)) return;
+      const src = en[i] || c;
+      const d = koCategory(src);
       if (d) arr[i] = d;
-      else add(() => c, (t) => (arr[i] = t));
+      else add(() => src, (t) => (arr[i] = t));
     });
   };
-  if (o.categories?.length && !o.categoriesEn) listKo(o.categories, (v) => (o.categoriesEn = v));
-  if (o.tags?.length && !o.tagsEn) listKo(o.tags, (v) => (o.tagsEn = v));
+  if (o.categories?.length) {
+    o.categoriesEn ||= [...o.categories];
+    listKo(o.categories, o.categoriesEn);
+  }
+  if (o.tags?.length) {
+    o.tagsEn ||= [...o.tags];
+    listKo(o.tags, o.tagsEn);
+  }
   (r.team || []).forEach((m) => add(() => m.role, (t) => (m.role = t)));
   (r.investors?.raises || []).forEach((x) => {
     const d = koRound(x.round);
@@ -263,11 +276,12 @@ export async function localize(r) {
     const k = why.match(/^설명 키워드: "(.+)"$/);
     if (k && !isKorean(k[1])) t.reasons[i] = `설명에 '${koKeyword(k[1]) || k[1]}' 관련 내용`;
   }));
+  r.localizedV = 2;
   if (!jobs.length) return r;
   try {
     const out = await translateKo(jobs.map((j) => j.v));
-    jobs.forEach((j, i) => out[i] && j.set(out[i]));
-    r.translated = true;
+    jobs.forEach((j, i) => out[i] && out[i] !== j.v && isKorean(out[i]) && j.set(out[i])); // 실제로 번역된 것만 반영
+    r.translated = !needsLocalize(r);
   } catch (e) {
     r.errors?.push(`번역: ${e.message}`);
   }

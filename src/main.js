@@ -1,7 +1,8 @@
 import * as store from './store.js';
 import { searchCoins, cgTrending } from './api/sources.js';
-import { analyzeProject, reapplyAi, localize, STEPS } from './engine/analyze.js';
+import { analyzeProject, reapplyAi, localize, needsLocalize, STEPS } from './engine/analyze.js';
 import { PROJECT_TYPES, EARN_METHODS } from './engine/taxonomy.js';
+import { lastError as trError } from './api/translate.js';
 import { GEMINI_MODELS, parseKeys, testKeys, resetExhausted } from './api/ai.js';
 import { esc, usd, krw, num, pct, cls, ago, sparkline, areaSpark, arc, icon } from './util.js';
 import { typeTag, stageTag, stars, tabEarn, tabInvest, tabOnchain, tabExchange, tabRisk, tabTimeline, tabMemo, viewCompare } from './ui/tabs.js';
@@ -116,6 +117,23 @@ const navbar = (cur) => {
   return `<nav class="navbar">${items.map(([k, l, ic]) => `<button class="${cur === k ? 'on' : ''}" data-act="nav" data-k="${k}">${ic}${l}${k === 'alerts' && n ? '<span class="dot"></span>' : ''}</button>`).join('')}</nav>`;
 };
 
+// ═════════ 한국어 변환 (이전 버전에서 저장된 프로젝트 포함) ═════════
+const trTried = new Set();
+async function ensureKorean(id, { force = false, quiet = true } = {}) {
+  const p = store.getProject(id);
+  if (!p || (!force && (trTried.has(id) || !needsLocalize(p)))) return false;
+  trTried.add(id);
+  await localize(p);
+  store.patchProject(id, { overview: p.overview, team: p.team, investors: p.investors, classification: p.classification, localizedV: p.localizedV, translated: p.translated });
+  if (top().view === 'report' && top().id === id) render();
+  else if (ROOTS.includes(top().view) && !state.select && !state.edit) render();
+  if (!quiet) toast(needsLocalize(store.getProject(id)) ? `일부 번역 실패 — ${trError || '네트워크를 확인하세요'}` : '한국어로 번역했습니다');
+  return true;
+}
+async function migrateAll() {
+  for (const p of store.listProjects()) if (needsLocalize(p)) await ensureKorean(p.id);
+}
+
 // ═════════ 렌더 ═════════
 function render() {
   const t = top();
@@ -124,6 +142,7 @@ function render() {
   if (ROOTS.includes(t.view) && !state.select && !state.edit) html += navbar(t.view);
   $app.innerHTML = html;
   if (t.view === 'home') bindDrag();
+  if (t.view === 'report') ensureKorean(t.id);
   renderOverlay();
 }
 
@@ -312,7 +331,7 @@ function viewAlerts() {
 function viewMore() {
   const item = (act, ic, t, s) => `<div class="row" data-act="${act}"><div class="mi">${ic}</div><div class="grow"><div class="t">${t}</div><div class="s">${s}</div></div><span class="chev">${icon.chev}</span></div>`;
   return `<div class="screen with-nav">
-  <div class="topbar"><img class="app-logo" src="img/logo.png" alt=""><h1>더보기<small>코인 검증기 v1.2.0</small></h1></div>
+  <div class="topbar"><img class="app-logo" src="img/logo.png" alt=""><h1>더보기<small>코인 검증기 v1.3.0</small></h1></div>
   <div class="sec menu"><h3>도구</h3>
     ${item('select', '⚖️', '프로젝트 비교', '2~3개를 골라 점수·투자·상장 나란히 비교')}
     ${item('calcPage', '🧮', '수익 계산기', '토큰 수익률 · 노드 회수기간 · 에어드랍 기대값')}
@@ -472,6 +491,7 @@ function tabSummary(p) {
   <div class="sec"><h3>${icon.doc} 프로젝트 개요 ${p.ai ? '<span class="pill-ai">AI</span>' : ''}</h3>
     ${p.ai?.summary ? `<p><b>${esc(p.ai.summary)}</b></p>` : ''}
     ${desc ? `<p style="white-space:pre-line">${esc(desc.slice(0, 1200))}${desc.length > 1200 ? '…' : ''}</p>` : '<p class="muted">설명 정보가 없습니다.</p>'}
+    ${needsLocalize(p) ? `<button class="btn sm ghost block" style="margin:4px 0 10px" data-act="translateNow">🇰🇷 한국어로 번역하기</button>` : ''}
     ${(o.categories || []).length ? `<div class="pmeta" style="margin:6px 0 10px">${[...new Set(o.categories)].slice(0, 8).map((c) => `<span class="tag">${esc(c)}</span>`).join('')}</div>` : ''}
     ${links.length ? `<div class="links">${links.map(([k, l]) => `<a href="${esc(o[k])}" target="_blank" rel="noopener">${l}</a>`).join('')}</div>` : ''}
   </div>
@@ -717,6 +737,7 @@ const actions = {
     if (state.overlay?.type === 'trending') { state.overlay = { type: 'trending', results }; renderOverlay(); }
   },
   toggleAi: (el) => el.classList.toggle('on'),
+  translateNow: () => ensureKorean(top().id, { force: true, quiet: false }),
   resetQuota: () => { resetExhausted(); toast('한도 소진 기록을 지웠습니다. 다음 분석에서 모든 키·모델을 다시 시도합니다'); },
   keyGuide: () => { const d = document.getElementById('keyGuide'); if (d) { d.open = true; d.scrollIntoView({ behavior: 'smooth', block: 'start' }); } },
   keyTest: async (el) => {
@@ -847,6 +868,7 @@ document.addEventListener('change', async (e) => {
 });
 
 render();
+setTimeout(migrateAll, 1500); // 예전에 저장된 영어 데이터를 한국어로 자동 변환
 
 // 미리보기/디버그용 훅 (#debug 일 때만)
 if (location.hash.includes('debug')) window.__app = { state, push, render, openOverlay, store, goRoot };
