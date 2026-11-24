@@ -395,3 +395,5 @@ ul.need li { margin: 3px 0; }
 .basics .bi { font-size: 22px; flex: none; }
 .basics b { font-size: 14.5px; }
 .basics p { margin: 2px 0 0; font-size: 13.5px; color: var(--sub); line-height: 1.6; }
+.metrics b { font-size: clamp(13px, 4.1vw, 16.5px); }
+.metrics > div { padding: 12px 10px; }

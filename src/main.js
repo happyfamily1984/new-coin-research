@@ -331,7 +331,7 @@ function viewAlerts() {
 function viewMore() {
   const item = (act, ic, t, s) => `<div class="row" data-act="${act}"><div class="mi">${ic}</div><div class="grow"><div class="t">${t}</div><div class="s">${s}</div></div><span class="chev">${icon.chev}</span></div>`;
   return `<div class="screen with-nav">
-  <div class="topbar"><img class="app-logo" src="img/logo.png" alt=""><h1>더보기<small>코인 검증기 v1.3.0</small></h1></div>
+  <div class="topbar"><img class="app-logo" src="img/logo.png" alt=""><h1>더보기<small>코인 검증기 v1.4.0</small></h1></div>
   <div class="sec menu"><h3>도구</h3>
     ${item('select', '⚖️', '프로젝트 비교', '2~3개를 골라 점수·투자·상장 나란히 비교')}
     ${item('calcPage', '🧮', '수익 계산기', '토큰 수익률 · 노드 회수기간 · 에어드랍 기대값')}

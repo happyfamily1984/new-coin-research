@@ -16,7 +16,7 @@ export function usd(v, { compact = true } = {}) {
     const sub = String(zeros).split('').map((d) => '₀₁₂₃₄₅₆₇₈₉'[+d]).join('');
     return `${v < 0 ? '-' : ''}$0.0${sub}${sig}`;
   }
-  return `$${v.toPrecision(4)}`;
+  return `$${v.toPrecision(a < 0.01 ? 3 : 4)}`;
 }
 export const krw = (v) => (v == null ? '-' : `₩${v >= 100 ? Math.round(v).toLocaleString() : v.toPrecision(4)}`);
 export const num = (v) => (v == null ? '-' : v >= 1e9 ? `${(v / 1e9).toFixed(2)}B` : v >= 1e6 ? `${(v / 1e6).toFixed(2)}M` : Math.round(v).toLocaleString());
