@@ -154,3 +154,7 @@ function diff(prev, next) {
   if (!pb && nb) out.push({ label: '빗썸', to: '신규 상장 확인', up: true, delta: 'NEW' });
   return out;
 }
+
+export function replaceAll(list) {
+  saveAll(list);
+}

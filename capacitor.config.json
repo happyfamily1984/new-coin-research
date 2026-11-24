@@ -3,7 +3,8 @@
   "appName": "코인 검증기",
   "webDir": "www",
   "plugins": {
-    "CapacitorHttp": { "enabled": true }
+    "CapacitorHttp": { "enabled": true },
+    "SystemBars": { "style": "DARK", "insetsHandling": "css" }
   },
-  "android": { "backgroundColor": "#0a0d13" }
+  "android": { "backgroundColor": "#060920" }
 }

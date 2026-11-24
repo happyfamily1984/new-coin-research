@@ -31,9 +31,14 @@ export async function searchCoins(query) {
 // ───────── CoinGecko ─────────
 export function cgCoin(id) {
   return fetchJson(
-    `${CG}/coins/${encodeURIComponent(id)}?localization=false&tickers=true&market_data=true&community_data=true&developer_data=true&sparkline=false`,
+    `${CG}/coins/${encodeURIComponent(id)}?localization=false&tickers=true&market_data=true&community_data=true&developer_data=true&sparkline=true`,
     { headers: cgHeaders(), retries: 3, cacheMs: 30000 }
   );
+}
+
+export async function cgTrending() {
+  const d = await fetchJson(`${CG}/search/trending`, { headers: cgHeaders(), cacheMs: 600000 });
+  return (d?.coins || []).map((c) => c.item).map((c) => ({ source: 'cg', id: c.id, name: c.name, symbol: c.symbol, rank: c.market_cap_rank, logo: c.large || c.thumb, change24h: c.data?.price_change_percentage_24h?.usd, price: c.data?.price }));
 }
 
 // ───────── CoinPaprika (팀, 백서, 거래소 마켓) ─────────

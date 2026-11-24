@@ -9,3 +9,4 @@ keystore.properties
 signing.properties
 local.properties
 .idea/
+test-apk/

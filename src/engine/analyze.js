@@ -16,6 +16,7 @@ export const STEPS = [
   { key: 'score', label: '분류·신뢰도·전략 산출' },
 ];
 
+const downsample = (a, n) => (a.length <= n ? a : Array.from({ length: n }, (_, i) => a[Math.round((i * (a.length - 1)) / (n - 1))]));
 const strip = (html = '') => html.replace(/<[^>]+>/g, '').replace(/\r?\n{3,}/g, '\n\n').trim();
 const slug = (s = '') => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
@@ -83,6 +84,7 @@ export async function analyzeProject(input, onStep = () => {}) {
       athChange: md.ath_change_percentage?.usd,
       athDate: md.ath_date?.usd,
       rank: cg.market_cap_rank,
+      spark: downsample(md.sparkline_7d?.price || [], 48),
     };
     const first = cg.genesis_date;
     if (first) r.market.ageDays = (Date.now() - new Date(first).getTime()) / 864e5;
