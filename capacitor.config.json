@@ -1,0 +1,9 @@
+{
+  "appId": "com.happyfamily.coinverifier",
+  "appName": "코인 검증기",
+  "webDir": "www",
+  "plugins": {
+    "CapacitorHttp": { "enabled": true }
+  },
+  "android": { "backgroundColor": "#0a0d13" }
+}
