@@ -11,8 +11,8 @@ android {
         applicationId "com.happyfamily.coinverifier"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 5
-        versionName "1.4"
+        versionCode 6
+        versionName "1.5"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -31,6 +31,10 @@ android {
         }
     }
     buildTypes {
+        debug {
+            // 업로드 키가 있으면 테스트 APK도 같은 키로 서명 → 세션이 바뀌어도 덮어 설치(업데이트) 가능
+            if (keystorePropsFile.exists()) { signingConfig signingConfigs.release }
+        }
         release {
             if (keystorePropsFile.exists()) { signingConfig signingConfigs.release }
             minifyEnabled false

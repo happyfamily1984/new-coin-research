@@ -1,4 +1,5 @@
 import * as store from './store.js';
+import { makeBackupCode, restoreBackup } from './backup.js';
 import { searchCoins, cgTrending } from './api/sources.js';
 import { analyzeProject, reapplyAi, localize, needsLocalize, STEPS } from './engine/analyze.js';
 import { PROJECT_TYPES, EARN_METHODS } from './engine/taxonomy.js';
@@ -331,7 +332,7 @@ function viewAlerts() {
 function viewMore() {
   const item = (act, ic, t, s) => `<div class="row" data-act="${act}"><div class="mi">${ic}</div><div class="grow"><div class="t">${t}</div><div class="s">${s}</div></div><span class="chev">${icon.chev}</span></div>`;
   return `<div class="screen with-nav">
-  <div class="topbar"><img class="app-logo" src="img/logo.png" alt=""><h1>더보기<small>코인 검증기 v1.4.0</small></h1></div>
+  <div class="topbar"><img class="app-logo" src="img/logo.png" alt=""><h1>더보기<small>코인 검증기 v1.5.0</small></h1></div>
   <div class="sec menu"><h3>도구</h3>
     ${item('select', '⚖️', '프로젝트 비교', '2~3개를 골라 점수·투자·상장 나란히 비교')}
     ${item('calcPage', '🧮', '수익 계산기', '토큰 수익률 · 노드 회수기간 · 에어드랍 기대값')}
@@ -596,10 +597,15 @@ function viewSettings() {
   </div>
   <div style="padding:0 16px"><button class="btn block" type="submit">저장</button></div>
   </form>
-  <div class="sec" style="margin-top:12px"><h3>백업 / 복원</h3>
-    <p class="muted" style="font-size:13px">분석 목록·메모·체크리스트를 파일로 내보내거나 가져옵니다.</p>
-    <div style="display:flex;gap:8px"><button class="btn sm ghost" style="flex:1" data-act="export">내보내기</button><button class="btn sm ghost" style="flex:1" data-act="import">가져오기</button></div>
-    <input type="file" id="importFile" accept="application/json" hidden>
+  <div class="sec" style="margin-top:12px"><h3>📦 백업 / 복원 (폰 바꿀 때)</h3>
+    <p class="muted" style="font-size:13px">분석 목록·메모·체크리스트·AI 결과를 <b>백업 코드</b>로 복사해 카카오톡 "나와의 채팅"이나 메모 앱에 붙여 두세요. 새 폰에서 아래 칸에 붙여넣으면 그대로 복원됩니다.</p>
+    <label class="switch" style="padding:6px 0"><span style="font-size:14px">Gemini·CoinGecko API 키도 함께 백업</span><input type="checkbox" id="bkKeys" checked style="width:20px;height:20px;accent-color:var(--acc)"></label>
+    <button class="btn sm block" data-act="backupCopy">📋 백업 코드 복사</button>
+    <div id="bkOut"></div>
+    <div class="field" style="margin-top:14px"><label for="restoreText">복원하기 — 백업 코드 붙여넣기</label><textarea id="restoreText" class="memo" style="min-height:90px;font-family:monospace;font-size:12px" placeholder="CV1:로 시작하는 백업 코드를 붙여넣으세요" spellcheck="false"></textarea></div>
+    <div style="display:flex;gap:8px"><button class="btn sm" style="flex:1" data-act="restoreRun">복원</button><button class="btn sm ghost" style="flex:1" data-act="import">파일에서 가져오기</button></div>
+    <p class="muted" style="font-size:12px;margin-top:8px">⚠️ 키가 포함된 백업 코드는 다른 사람에게 보내지 마세요.</p>
+    <input type="file" id="importFile" accept="application/json,text/plain" hidden>
   </div>
 </div>`;
 }
@@ -751,13 +757,26 @@ const actions = {
     out.innerHTML = `<div class="keyres">${res.map((r) => `<div><span>${r.ok ? '✅' : '❌'} 키 ${r.i} <code>${esc(r.masked)}</code></span><b class="${r.ok ? 'up' : 'down'}">${esc(r.text)}</b></div>`).join('')}</div>`;
   },
   refreshAll: () => openOverlay({ type: 'confirm', title: '전체 업데이트', msg: `저장된 ${store.listProjects().length}개 프로젝트를 모두 최신 데이터로 업데이트할까요? (AI 조사는 제외, 1~2분 소요)`, ok: '업데이트', onOk: refreshAll }),
-  export: () => {
-    const blob = new Blob([JSON.stringify({ app: 'coin-verifier', v: 1, at: Date.now(), projects: store.listProjects() }, null, 1)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `coin-verifier-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    toast('백업 파일을 저장했습니다');
+  backupCopy: async (el) => {
+    el.disabled = true;
+    const code = await makeBackupCode({ withKeys: document.getElementById('bkKeys').checked });
+    el.disabled = false;
+    const n = store.listProjects().length;
+    let copied = false;
+    try { await navigator.clipboard.writeText(code); copied = true; } catch { /* 아래 수동 복사 */ }
+    document.getElementById('bkOut').innerHTML = `<div class="caution" style="color:var(--sub);background:#ffffff08">${copied ? `✅ 프로젝트 ${n}개 백업 코드를 복사했습니다 (${Math.ceil(code.length / 1024)}KB). 카톡·메모에 붙여넣어 보관하세요.` : '아래 코드를 길게 눌러 전체 선택 → 복사하세요.'}</div>${copied ? '' : `<textarea class="memo" readonly style="min-height:90px;font-size:11px;margin-top:8px">${esc(code)}</textarea>`}`;
+    if (copied) toast('백업 코드를 복사했습니다');
+  },
+  restoreRun: async () => {
+    const t = document.getElementById('restoreText').value;
+    if (!t.trim()) return toast('백업 코드를 붙여넣으세요');
+    try {
+      const r = await restoreBackup(t);
+      toast(`복원 완료 · 프로젝트 ${r.projects}개${r.keys ? ` · API 키 ${r.keys}개` : ''}`);
+      goRoot('home');
+    } catch (e) {
+      toast(`복원 실패: ${e.message}`);
+    }
   },
   import: () => document.getElementById('importFile').click(),
 };
@@ -855,14 +874,10 @@ document.addEventListener('change', async (e) => {
     render();
   } else if (el.id === 'importFile' && el.files[0]) {
     try {
-      const data = JSON.parse(await el.files[0].text());
-      const incoming = data.projects || [];
-      const map = new Map(store.listProjects().map((p) => [p.id, p]));
-      for (const p of incoming) map.set(p.id, p);
-      store.replaceAll([...map.values()]);
-      toast(`${incoming.length}개 프로젝트를 가져왔습니다`);
-    } catch {
-      toast('백업 파일을 읽을 수 없습니다');
+      const r = await restoreBackup(await el.files[0].text());
+      toast(`복원 완료 · 프로젝트 ${r.projects}개`);
+    } catch (e) {
+      toast(`백업 파일을 읽을 수 없습니다: ${e.message}`);
     }
   }
 });
